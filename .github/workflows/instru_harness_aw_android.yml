@@ -1,51 +1,96 @@
-name: Instru Harness (aw-android)
+name: Android Instrumentation Tests (ReactiveCircus) - aw-android
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'mobile/src/main/**'
+      - 'mobile/src/androidTest/**'
+      - '.github/workflows/instru_test_CommunityAction_aw_android.yml'
+
+env:
+  NDK_VERSION: '25.2.9519653'
+  JAVA_VERSION: '17'
 
 jobs:
-  emu_community:
-    name: Emu_Community connectedAndroidTest
+  instrumentation-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
-      - name: Set up JDK 17
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Gradle cache
-        uses: gradle/actions/setup-gradle@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
+      - name: Delete old Android SDK cmdline-tools
+        run: rm -rf "$ANDROID_HOME/cmdline-tools/latest" || true
 
-      - name: List connectedAndroidTest tasks
-        run: ./gradlew :mobile:tasks --all | sed -n '/connected.*AndroidTest/Ip'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Run instrumentation (emulator)
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;${{ env.NDK_VERSION }}"
+          ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
+          ls -la "$ANDROID_NDK_HOME"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build JNI libs (aw-server-rust)
+        run: |
+          ./aw-server-rust/install-ndk.sh
+          make aw-server-rust
+          test -e mobile/src/main/jniLibs/x86_64/libaw_server.so
+
+      - name: Enable KVM for emulator and clear up space
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          df -h
+          sudo apt-get clean
+          df -h
+
+      - name: Run emulator and tests (ReactiveCircus)
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: 32
           target: google_apis
           arch: x86_64
-          disable-animations: true
-          script: |
-            ./gradlew --no-daemon :mobile:connectedDebugAndroidTest
+          profile: pixel_3a
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot
+          emulator-boot-timeout: 1200
+          script: ./gradlew --no-daemon :mobile:connectedDebugAndroidTest --stacktrace
 
-      - name: Upload test reports (best-effort)
+      - name: Upload AndroidTest XML results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
-          path: |
-            mobile/build/reports/**
-            mobile/build/outputs/androidTest-results/**
-            mobile/build/test-results/**
+          name: androidTest-xml-results
+          path: mobile/build/outputs/androidTest-results/connected/**
+          if-no-files-found: ignore
+
+      - name: Upload AndroidTest HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: androidTest-html-report
+          path: mobile/build/reports/androidTests/connected/**
           if-no-files-found: ignore
