@@ -46,8 +46,18 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
           ls -la "$ANDROID_NDK_HOME"
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust (pinned)
+        uses: dtolnay/rust-toolchain@1.74.1
+        
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            aw-server-rust/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('aw-server-rust/**/Cargo.lock') }}
+        
 
       - name: Build JNI libs (aw-server-rust)
         run: |
