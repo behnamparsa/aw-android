@@ -3,11 +3,7 @@ name: Android Instrumentation Tests (ReactiveCircus) - aw-android
 on:
   workflow_dispatch:
   push:
-    branches: [ master ]
-    paths:
-      - 'mobile/src/main/**'
-      - 'mobile/src/androidTest/**'
-      - '.github/workflows/instru_test_CommunityAction_aw_android.yml'
+    branches: [ add-instru-harness ]
 
 env:
   NDK_VERSION: '25.2.9519653'
